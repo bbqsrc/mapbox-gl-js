@@ -28,26 +28,46 @@
 <script src='../dist/mapbox-gl-dev.js'></script>
 <script src='../debug/access_token_generated.js'></script>
 <script>
+
+const style = {
+  version: 8,
+  center: [0, 20],
+  zoom: 0,
+  sources: {
+    composite: {
+      url: 'mapbox://mapbox.mapbox-streets-v8',
+      type: 'vector'
+    }
+  },
+  sprite: 'mapbox://sprites/mapbox/streets-v11',
+  glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}.pbf',
+  layers: [
+    {
+      id: 'land',
+      type: 'background',
+      paint: {
+        'background-color': '#ccc'
+      }
+    },
+    {
+      id: 'water',
+      type: 'fill',
+      source: 'composite',
+      'source-layer': 'water',
+      paint: {
+        'fill-color': '#fff'
+      }
+    }
+  ]
+};
 var map = window.map = new mapboxgl.Map({
     container: 'map',
-    style: {
-        'version': 8,
-        'name': "Blank",
-        'sources': {},
-        'layers': [{
-            'id': "background",
-            'type': "background",
-            'paint': {
-                'background-color': "beige"
-            }
-        }],
-        'glyphs': 'mapbox://fonts/mapbox/{fontstack}/{range}.pbf',
-        'id': 'blank'
-    },
+    style,
     center: [0, 0],
     pitch: 0,
     bearing: 0,
-    zoom: 0
+    zoom: 0,
+    projection: 'globe'
 });
 
 map.repaint = true;
@@ -57,67 +77,32 @@ map.on('load', function () {
         "data": {
             "type": "FeatureCollection",
             "features": [
+                // {
+                //     "type": "Feature",
+                //     "geometry": {
+                //         "type": "Point",
+                //         "coordinates": [ 0, 0 ]
+                //     }
+                // },
+                // {
+                //     "type": "Feature",
+                //     "geometry": {
+                //         "type": "Point",
+                //         "coordinates": [ 30.5, 30 ]
+                //     }
+                // },
+                // {
+                //     "type": "Feature",
+                //     "geometry": {
+                //         "type": "Point",
+                //         "coordinates": [ 50.5, 50.2 ]
+                //     }
+                // },
                 {
                     "type": "Feature",
                     "geometry": {
                         "type": "Point",
-                        "coordinates": [ 0, 0 ]
-                    }
-                },
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [ 0, 0 ]
-                    }
-                },
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [ 0, 0 ]
-                    }
-                },
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [ 0, 0 ]
-                    }
-                },
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [ 0, 0 ]
-                    }
-                },
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [ 0, 0 ]
-                    }
-                },
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [ 0, 0 ]
-                    }
-                },
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [ 0, 0 ]
-                    }
-                },
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [ 0, 0 ]
+                        "coordinates": [ 50.5, 50.2 ]
                     }
                 }
             ]
@@ -130,19 +115,7 @@ map.on('load', function () {
         "layout": {
             "text-field": "x",
             "text-size": 20,
-            "text-justify": "auto",
-            "text-variable-anchor": [
-                "center",
-                "top",
-                "bottom",
-                "left",
-                "right",
-                "top-left",
-                "top-right",
-                "bottom-left",
-                "bottom-right"
-            ],
-            "text-offset": [2, 1.5],
+            'text-allow-overlap': true,
             "text-font": [
                 "Open Sans Semibold",
                 "Arial Unicode MS Bold"

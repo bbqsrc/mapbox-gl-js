@@ -1,7 +1,7 @@
 // @flow
 import type Transform from '../transform.js';
 import {CanonicalTileID, UnwrappedTileID} from '../../source/tile_id.js';
-import {mat4, vec4, vec3} from 'gl-matrix';
+import {mat4, vec4, vec3, vec2} from 'gl-matrix';
 import MercatorCoordinate, {lngFromMercatorX, latFromMercatorY, mercatorZfromAltitude, mercatorXfromLng, mercatorYfromLat} from '../mercator_coordinate.js';
 import EXTENT from '../../data/extent.js';
 import {degToRad, radToDeg, getColumn} from '../../util/util.js';
@@ -11,6 +11,7 @@ import {
     globeTileBounds,
     globeECEFNormalizationScale,
     globeECEFUnitsToPixelScale,
+    globeTileLatLngCorners,
     calculateGlobeMatrix,
     globeNormalizeECEF,
     globeDenormalizeECEF,
@@ -31,6 +32,25 @@ export default class GlobeTileTransform {
     createTileMatrix(id: UnwrappedTileID): mat4 {
         const decode = globeDenormalizeECEF(globeTileBounds(id.canonical));
         return mat4.multiply([], this._globeMatrix, decode);
+    }
+
+    isCulled(position: vec2, id: CanonicalTileID, zoom: number, camera: FreeCamera): boolean {
+        // if (zoom >= GLOBE_ZOOM_THRESHOLD_MIN) {
+        //     return false;
+        // }
+
+        const fwd = camera.forward();
+        const lng = position[0];
+        const lat = position[1];
+        const p = vec3.transformMat4([], latLngToECEF(lat, lng), this._globeMatrix);
+
+        const globeOrigin = vec3.transformMat4([], [0, 0, 0], this._globeMatrix);
+        const dir = vec3.sub([], p, globeOrigin);
+        vec3.normalize(dir, dir);
+
+        console.log(vec3.dot(dir, fwd));
+
+        return vec3.dot(dir, fwd) >= -0.3;
     }
 
     createInversionMatrix(id: UnwrappedTileID): mat4 {

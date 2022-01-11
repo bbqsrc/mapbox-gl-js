@@ -8,6 +8,7 @@ import * as projection from './projection.js';
 import {getAnchorJustification, evaluateVariableOffset} from './symbol_layout.js';
 import {getAnchorAlignment, WritingMode} from './shaping.js';
 import {mat4} from 'gl-matrix';
+import {lngFromMercatorX, latFromMercatorY} from '../geo/mercator_coordinate.js';
 import assert from 'assert';
 import Point from '@mapbox/point-geometry';
 import type Transform from '../geo/transform.js';
@@ -23,12 +24,19 @@ import type {FogState} from '../style/fog_helpers.js';
 class OpacityState {
     opacity: number;
     placed: boolean;
-    constructor(prevState: ?OpacityState, increment: number, placed: boolean, skipFade: ?boolean) {
+    backfacing: boolean;
+    constructor(prevState: ?OpacityState, increment: number, placed: boolean, skipFade: ?boolean, backfacing: ?backfacing) {
         if (prevState) {
-            this.opacity = Math.max(0, Math.min(1, prevState.opacity + (prevState.placed ? increment : -increment)));
+            // console.log(backfacing)
+            if (prevState.backfacing !== backfacing) {
+                this.opacity = 0;
+            } else {
+                this.opacity = Math.max(0, Math.min(1, prevState.opacity + (prevState.placed ? increment : -increment)));
+            }
         } else {
-            this.opacity = (skipFade && placed) ? 1 : 0;
+            this.opacity = backfacing ? 0 : (skipFade && placed) ? 1 : 0;
         }
+        this.backfacing = backfacing;
         this.placed = placed;
     }
     isHidden() {
@@ -40,9 +48,9 @@ class JointOpacityState {
     text: OpacityState;
     icon: OpacityState;
     clipped: boolean;
-    constructor(prevState: ?JointOpacityState, increment: number, placedText: boolean, placedIcon: boolean, skipFade: ?boolean, clipped: boolean = false) {
-        this.text = new OpacityState(prevState ? prevState.text : null, increment, placedText, skipFade);
-        this.icon = new OpacityState(prevState ? prevState.icon : null, increment, placedIcon, skipFade);
+    constructor(prevState: ?JointOpacityState, increment: number, placedText: boolean, placedIcon: boolean, skipFade: ?boolean, clipped: boolean = false, backfacing: boolean = false) {
+        this.text = new OpacityState(prevState ? prevState.text : null, increment, placedText, skipFade, backfacing);
+        this.icon = new OpacityState(prevState ? prevState.icon : null, increment, placedIcon, skipFade, backfacing);
 
         this.clipped = clipped;
     }
@@ -59,13 +67,15 @@ class JointPlacement {
     // and if a subsequent viewport change brings them into view, they'll be fully
     // visible right away.
     skipFade: boolean;
+    backfacing: boolean;
 
     clipped: boolean
-    constructor(text: boolean, icon: boolean, skipFade: boolean, clipped: boolean = false) {
+    constructor(text: boolean, icon: boolean, skipFade: boolean, clipped: boolean = false, backfacing = false) {
         this.text = text;
         this.icon = icon;
         this.skipFade = skipFade;
         this.clipped = clipped;
+        this.backfacing = backfacing;
     }
 }
 
@@ -427,6 +437,7 @@ export class Placement {
         }
 
         const placeSymbol = (symbolInstance: SymbolInstance, symbolIndex: number, collisionArrays: CollisionArrays) => {
+            const canonicalTileId = this.retainedQueryData[bucket.bucketInstanceId].tileID.canonical;
             if (clippingData) {
                 // Setup globals
                 const globals = {
@@ -446,8 +457,6 @@ export class Placement {
                         layoutVertexArrayOffset: 0
                     });
                 }
-                const canonicalTileId = this.retainedQueryData[bucket.bucketInstanceId].tileID.canonical;
-
                 const filterFunc = clippingData.dynamicFilter;
                 const shouldClip = !filterFunc(globals, feature, canonicalTileId, new Point(symbolInstance.tileAnchorX, symbolInstance.tileAnchorY), this.transform.calculateDistanceTileData(clippingData.unwrappedTileID));
 
@@ -456,6 +465,19 @@ export class Placement {
                     seenCrossTileIDs[symbolInstance.crossTileID] = true;
                     return;
                 }
+            }
+
+            const tr = this.transform;
+            const tiles = 1 << canonicalTileId.z;
+            const mercX = (symbolInstance.tileAnchorX / EXTENT + canonicalTileId.x) / tiles;
+            const mercY = (symbolInstance.tileAnchorY / EXTENT + canonicalTileId.y) / tiles;
+            const position = [lngFromMercatorX(mercX), latFromMercatorY(mercY)];
+            const culled = tr.projection.createTileTransform(tr, tr.worldSize).isCulled(position, canonicalTileId, tr.zoom, tr._camera);
+            if (culled) {
+                // console.log('CULLED ', position);
+                this.placements[symbolInstance.crossTileID] = new JointPlacement(false, false, false, false, true);
+                seenCrossTileIDs[symbolInstance.crossTileID] = true;
+                return;
             }
 
             if (seenCrossTileIDs[symbolInstance.crossTileID]) return;
@@ -857,12 +879,12 @@ export class Placement {
             const jointPlacement = this.placements[crossTileID];
             const prevOpacity = prevOpacities[crossTileID];
             if (prevOpacity) {
-                this.opacities[crossTileID] = new JointOpacityState(prevOpacity, increment, jointPlacement.text, jointPlacement.icon, null, jointPlacement.clipped);
+                this.opacities[crossTileID] = new JointOpacityState(prevOpacity, increment, jointPlacement.text, jointPlacement.icon, null, jointPlacement.clipped, jointPlacement.backfacing);
                 placementChanged = placementChanged ||
                     jointPlacement.text !== prevOpacity.text.placed ||
                     jointPlacement.icon !== prevOpacity.icon.placed;
             } else {
-                this.opacities[crossTileID] = new JointOpacityState(null, increment, jointPlacement.text, jointPlacement.icon, jointPlacement.skipFade, jointPlacement.clipped);
+                this.opacities[crossTileID] = new JointOpacityState(null, increment, jointPlacement.text, jointPlacement.icon, jointPlacement.skipFade, jointPlacement.clipped, jointPlacement.backfacing);
                 placementChanged = placementChanged || jointPlacement.text || jointPlacement.icon;
             }
         }
@@ -903,7 +925,13 @@ export class Placement {
 
     updateLayerOpacities(styleLayer: StyleLayer, tiles: Array<Tile>) {
         const seenCrossTileIDs = {};
+        // const tr = this.transform;
         for (const tile of tiles) {
+            // const id = tile.tileID;
+            // const culled = tr.projection.createTileTransform(tr, tr.worldSize).cullTile(id, tr.zoom, tr._camera);
+            // if (culled) {
+            //     continue;
+            // }
             const symbolBucket = ((tile.getBucket(styleLayer): any): SymbolBucket);
             if (symbolBucket && tile.latestFeatureIndex && styleLayer.id === symbolBucket.layerIds[0]) {
                 this.updateBucketOpacities(symbolBucket, seenCrossTileIDs, tile.collisionBoxArray);
@@ -1126,6 +1154,7 @@ export class Placement {
     }
 
     symbolFadeChange(now: number) {
+        // FADE DURATION HERE for immediate fading
         return this.fadeDuration === 0 ?
             1 :
             ((now - this.commitTime) / this.fadeDuration + this.prevZoomAdjustment);
