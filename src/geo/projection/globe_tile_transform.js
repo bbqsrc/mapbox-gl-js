@@ -34,7 +34,15 @@ export default class GlobeTileTransform {
         return mat4.multiply([], this._globeMatrix, decode);
     }
 
+    centerEncoded(id: UnwrappedTileID) {
+        const zero = [0.0, 0.0, 0.0];
+        const bounds = globeTileBounds(id.canonical);
+        const normalizationMatrix = globeNormalizeECEF(bounds);
+        return vec3.transformMat4(zero, zero, normalizationMatrix);
+    }
+
     isCulled(position: vec2, id: CanonicalTileID, zoom: number, camera: FreeCamera): boolean {
+        return false;
         // if (zoom >= GLOBE_ZOOM_THRESHOLD_MIN) {
         //     return false;
         // }

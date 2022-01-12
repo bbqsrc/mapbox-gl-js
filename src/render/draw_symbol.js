@@ -239,6 +239,7 @@ function drawLayerSymbols(painter, sourceCache, layer, coords, isText, translate
     const context = painter.context;
     const gl = context.gl;
     const tr = painter.transform;
+    const forward = tr._camera.forward();
     const tileTransform = tr.projection.createTileTransform(tr, tr.worldSize);
 
     const rotateWithMap = rotationAlignment === 'map';
@@ -342,24 +343,26 @@ function drawLayerSymbols(painter, sourceCache, layer, coords, isText, translate
 
         let uniformValues;
         const invMatrix = tileTransform.createInversionMatrix(coord.toUnwrapped());
+        const tileMatrix = tileTransform._globeMatrix;
+        const centerEncoded = tileTransform.centerEncoded(coord.toUnwrapped());
 
         if (isSDF) {
             if (!bucket.iconsInText) {
                 uniformValues = symbolSDFUniformValues(sizeData.kind,
                 size, rotateInShader, pitchWithMap, painter, matrix,
                 uLabelPlaneMatrix, uglCoordMatrix, isText, texSize, true,
-                coordId, globeToMercator, invMatrix, mercCenter);
+                coordId, globeToMercator, invMatrix, mercCenter, forward, tileMatrix, centerEncoded);
             } else {
                 uniformValues = symbolTextAndIconUniformValues(sizeData.kind,
                 size, rotateInShader, pitchWithMap, painter, matrix,
                 uLabelPlaneMatrix, uglCoordMatrix, texSize, texSizeIcon,
-                coordId, globeToMercator, invMatrix, mercCenter);
+                coordId, globeToMercator, invMatrix, mercCenter, forward, tileMatrix, centerEncoded);
             }
         } else {
             uniformValues = symbolIconUniformValues(sizeData.kind,
                 size, rotateInShader, pitchWithMap, painter, matrix,
                 uLabelPlaneMatrix, uglCoordMatrix, isText, texSize,
-                coordId, globeToMercator, invMatrix, mercCenter);
+                coordId, globeToMercator, invMatrix, mercCenter, forward, tileMatrix, centerEncoded);
         }
 
         const state = {

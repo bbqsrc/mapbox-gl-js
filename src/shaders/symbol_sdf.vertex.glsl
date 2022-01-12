@@ -20,6 +20,9 @@ uniform mat4 u_matrix;
 uniform mat4 u_label_plane_matrix;
 uniform mat4 u_inv_rot_matrix;
 uniform vec2 u_merc_center;
+uniform vec3 u_forward;
+uniform vec3 u_globe_center;
+uniform mat4 u_tile_matrix;
 uniform mat4 u_coord_matrix;
 uniform bool u_is_text;
 uniform bool u_pitch_with_map;
@@ -95,6 +98,15 @@ void main() {
 
     float fontScale = u_is_text ? size / 24.0 : size;
 
+    vec4 origin = u_tile_matrix * vec4(u_globe_center, 1.0);
+    vec4 point = u_tile_matrix * vec4(world_pos, 1.0);
+    vec3 dir = normalize(point.xyz - origin.xyz);
+    float d = dot(dir, u_forward);
+    float fade = 1.0;
+    if (d >= 0.0) {
+        fade = 0.0;
+    }
+
     highp float symbol_rotation = 0.0;
     if (u_rotate_symbol) {
         // Point labels with 'rotation-alignment: map' are horizontal with respect to tile units
@@ -127,7 +139,7 @@ void main() {
     z = elevation(tile_pos.xy);
 #endif
     // Symbols might end up being behind the camera. Move them AWAY.
-    float occlusion_fade = occlusionFade(projectedPoint);
+    float occlusion_fade = occlusionFade(projectedPoint) * fade;
     gl_Position = mix(u_coord_matrix * vec4(projected_pos.xy / projected_pos.w + offset, z, 1.0), AWAY, float(projectedPoint.w <= 0.0 || occlusion_fade == 0.0));
     float gamma_scale = gl_Position.w;
 
