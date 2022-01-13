@@ -9,10 +9,13 @@ import {
 } from '../uniform_binding.js';
 import {extend} from '../../util/util.js';
 import browser from '../../util/browser.js';
-
+import {UnwrappedTileID} from '../../source/tile_id.js';
+import {FreeCamera} from '../../ui/free_camera.js';
 import type Context from '../../gl/context.js';
 import type Painter from '../painter.js';
+import type {TileTransform} from '../../geo/projection/index.js';
 import type {UniformValues, UniformLocations} from '../uniform_binding.js';
+import {globeEncodePosition} from '../../geo/projection/globe.js';
 
 export type SymbolIconUniformsType = {|
     'u_is_size_zoom_constant': Uniform1i,
@@ -212,12 +215,6 @@ const symbolIconUniformValues = (
         'u_pitch_with_map': +pitchWithMap,
         'u_texsize': texSize,
         'u_tile_id': tileID,
-        'u_zoom_transition': zoomTransition,
-        'u_inv_rot_matrix': invRotMatrix,
-        'u_merc_center': mercCenter,
-        'u_forward': forward,
-        'u_globe_center': globeCenter,
-        'u_tile_matrix': tileMatrix,
         'u_texture': 0
     };
 };
@@ -234,20 +231,13 @@ const symbolSDFUniformValues = (
     isText: boolean,
     texSize: [number, number],
     isHalo: boolean,
-    tileID: [number, number, number],
-    zoomTransition: number,
-    invRotMatrix: Float32Array,
-    mercCenter: [number, number],
-    forward: [number, number, number],
-    tileMatrix: Float32Array,
-    globeCenter: [number, number, number],
+    tileID: [number, number, number]
 ): UniformValues<SymbolSDFUniformsType> => {
     const {cameraToCenterDistance, _pitch} = painter.transform;
 
     return extend(symbolIconUniformValues(functionType, size,
         rotateInShader, pitchWithMap, painter, matrix, labelPlaneMatrix,
-        glCoordMatrix, isText, texSize, tileID, zoomTransition,
-        invRotMatrix, mercCenter, forward, tileMatrix, globeCenter), {
+        glCoordMatrix, isText, texSize, tileID), {
         'u_gamma_scale': pitchWithMap ? cameraToCenterDistance * Math.cos(painter.terrain ? 0 : _pitch) : 1,
         'u_device_pixel_ratio': browser.devicePixelRatio,
         'u_is_halo': +isHalo
@@ -266,20 +256,32 @@ const symbolTextAndIconUniformValues = (
     texSizeSDF: [number, number],
     texSizeIcon: [number, number],
     tileID: [number, number, number],
-    zoomTransition: number,
-    invRotMatrix: Float32Array,
-    mercCenter: [number, number],
-    forward: [number, number, number],
-    tileMatrix: Float32Array,
     globeCenter: [number, number, number],
 ): UniformValues<SymbolIconUniformsType> => {
     return extend(symbolSDFUniformValues(functionType, size,
         rotateInShader, pitchWithMap, painter, matrix, labelPlaneMatrix,
-        glCoordMatrix, true, texSizeSDF, true, tileID, zoomTransition,
-        invRotMatrix, mercCenter, forward, tileMatrix, globeCenter), {
+        glCoordMatrix, true, texSizeSDF, true, tileID), {
         'u_texsize_icon': texSizeIcon,
         'u_texture_icon': 1
     });
 };
+
+export function globeSymbolUniformValues(
+    id: UnwrappedTileID,
+    mercatorCenter: vec2,
+    globeToMercator: number,
+    camera: FreeCamera,
+    tileTransform: TileTransform) {
+    const tileMatrix = tileTransform._globeMatrix;
+    const center = globeEncodePosition([0.0, 0.0, 0.0], id);
+    return {
+        'u_zoom_transition': globeToMercator,
+        'u_inv_rot_matrix': tileTransform.createInversionMatrix(id),
+        'u_merc_center': mercatorCenter,
+        'u_forward': camera.forward(),
+        'u_globe_center': center,
+        'u_tile_matrix': tileMatrix
+    };
+}
 
 export {symbolIconUniforms, symbolSDFUniforms, symbolIconUniformValues, symbolSDFUniformValues, symbolTextAndIconUniformValues, symbolTextAndIconUniforms};
