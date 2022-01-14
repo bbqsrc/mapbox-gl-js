@@ -7,10 +7,10 @@ import {
     Uniform3f,
     UniformMatrix4f
 } from '../uniform_binding.js';
+import {mat4} from 'gl-matrix';
 import {extend} from '../../util/util.js';
 import browser from '../../util/browser.js';
-import {UnwrappedTileID} from '../../source/tile_id.js';
-import {FreeCamera} from '../../ui/free_camera.js';
+import {OverscaledTileID} from '../../source/tile_id.js';
 import type Context from '../../gl/context.js';
 import type Painter from '../painter.js';
 import type {TileTransform} from '../../geo/projection/index.js';
@@ -39,7 +39,7 @@ export type SymbolIconUniformsType = {|
     'u_merc_center': Uniform2f,
     'u_forward': Uniform3f,
     'u_tile_matrix': UniformMatrix4f,
-    'u_globe_center': Uniform1f,
+    'u_globe_center': Uniform3f,
     'u_texture': Uniform1i
 |};
 
@@ -68,7 +68,7 @@ export type SymbolSDFUniformsType = {|
     'u_merc_center': Uniform2f,
     'u_forward': Uniform3f,
     'u_tile_matrix': UniformMatrix4f,
-    'u_globe_center': Uniform1f,
+    'u_globe_center': Uniform3f,
     'u_is_halo': Uniform1i
 |};
 
@@ -177,6 +177,8 @@ const symbolTextAndIconUniforms = (context: Context, locations: UniformLocations
     'u_is_halo': new Uniform1i(context, locations.u_is_halo)
 });
 
+const identityMatrix = mat4.identity([]);
+
 const symbolIconUniformValues = (
     functionType: string,
     size: ?{uSizeT: number, uSize: number},
@@ -188,17 +190,14 @@ const symbolIconUniformValues = (
     glCoordMatrix: Float32Array,
     isText: boolean,
     texSize: [number, number],
-    tileID: [number, number, number],
+    coord: OverscaledTileID,
     zoomTransition: number,
-    invRotMatrix: Float32Array,
-    mercCenter: [number, number],
-    forward: [number, number, number],
-    tileMatrix: Float32Array,
-    globeCenter: [number, number, number]
+    mercatorCenter: [number, number],
+    tileTransform: TileTransform
 ): UniformValues<SymbolIconUniformsType> => {
     const transform = painter.transform;
 
-    return {
+    const values = {
         'u_is_size_zoom_constant': +(functionType === 'constant' || functionType === 'source'),
         'u_is_size_feature_constant': +(functionType === 'constant' || functionType === 'camera'),
         'u_size_t': size ? size.uSizeT : 0,
@@ -214,9 +213,28 @@ const symbolIconUniformValues = (
         'u_is_text': +isText,
         'u_pitch_with_map': +pitchWithMap,
         'u_texsize': texSize,
-        'u_tile_id': tileID,
-        'u_texture': 0
+        'u_texture': 0,
+        'u_tile_id': [0, 0, 0],
+        'u_zoom_transition': 0,
+        'u_inv_rot_matrix': identityMatrix,
+        'u_merc_center': [0, 0],
+        'u_forward': [0, 0, 0],
+        'u_globe_center': [0, 0, 0],
+        'u_tile_matrix': identityMatrix
     };
+
+    if (transform.projection.name === 'globe') {
+        const id = coord.toUnwrapped();
+        values['u_tile_id'] = [coord.canonical.x, coord.canonical.y, 1 << coord.canonical.z];
+        values['u_zoom_transition'] = zoomTransition;
+        values['u_inv_rot_matrix'] = tileTransform.createInversionMatrix(id);
+        values['u_merc_center'] = mercatorCenter;
+        values['u_forward'] = transform._camera.forward();
+        values['u_globe_center'] = globeEncodePosition([0, 0, 0], id);
+        values['u_tile_matrix'] = tileTransform._globeMatrix;
+    }
+
+    return values;
 };
 
 const symbolSDFUniformValues = (
@@ -231,13 +249,16 @@ const symbolSDFUniformValues = (
     isText: boolean,
     texSize: [number, number],
     isHalo: boolean,
-    tileID: [number, number, number]
+    coord: OverscaledTileID,
+    zoomTransition: number,
+    mercatorCenter: [number, number],
+    tileTransform: TileTransform
 ): UniformValues<SymbolSDFUniformsType> => {
     const {cameraToCenterDistance, _pitch} = painter.transform;
 
-    return extend(symbolIconUniformValues(functionType, size,
-        rotateInShader, pitchWithMap, painter, matrix, labelPlaneMatrix,
-        glCoordMatrix, isText, texSize, tileID), {
+    return extend(symbolIconUniformValues(functionType, size, rotateInShader,
+        pitchWithMap, painter, matrix, labelPlaneMatrix, glCoordMatrix, isText,
+        texSize, coord, zoomTransition, mercatorCenter, tileTransform), {
         'u_gamma_scale': pitchWithMap ? cameraToCenterDistance * Math.cos(painter.terrain ? 0 : _pitch) : 1,
         'u_device_pixel_ratio': browser.devicePixelRatio,
         'u_is_halo': +isHalo
@@ -255,33 +276,17 @@ const symbolTextAndIconUniformValues = (
     glCoordMatrix: Float32Array,
     texSizeSDF: [number, number],
     texSizeIcon: [number, number],
-    tileID: [number, number, number],
-    globeCenter: [number, number, number],
+    coord: OverscaledTileID,
+    zoomTransition: number,
+    mercatorCenter: [number, number],
+    tileTransform: TileTransform
 ): UniformValues<SymbolIconUniformsType> => {
-    return extend(symbolSDFUniformValues(functionType, size,
-        rotateInShader, pitchWithMap, painter, matrix, labelPlaneMatrix,
-        glCoordMatrix, true, texSizeSDF, true, tileID), {
+    return extend(symbolSDFUniformValues(functionType, size, rotateInShader,
+        pitchWithMap, painter, matrix, labelPlaneMatrix, glCoordMatrix, true, texSizeSDF,
+        true, coord, zoomTransition, mercatorCenter, tileTransform), {
         'u_texsize_icon': texSizeIcon,
         'u_texture_icon': 1
     });
 };
-
-export function globeSymbolUniformValues(
-    id: UnwrappedTileID,
-    mercatorCenter: vec2,
-    globeToMercator: number,
-    camera: FreeCamera,
-    tileTransform: TileTransform) {
-    const tileMatrix = tileTransform._globeMatrix;
-    const center = globeEncodePosition([0.0, 0.0, 0.0], id);
-    return {
-        'u_zoom_transition': globeToMercator,
-        'u_inv_rot_matrix': tileTransform.createInversionMatrix(id),
-        'u_merc_center': mercatorCenter,
-        'u_forward': camera.forward(),
-        'u_globe_center': center,
-        'u_tile_matrix': tileMatrix
-    };
-}
 
 export {symbolIconUniforms, symbolSDFUniforms, symbolIconUniformValues, symbolSDFUniformValues, symbolTextAndIconUniformValues, symbolTextAndIconUniforms};

@@ -15,7 +15,6 @@ import {addDynamicAttributes} from '../data/bucket/symbol_bucket.js';
 import {getAnchorAlignment, WritingMode} from '../symbol/shaping.js';
 import ONE_EM from '../symbol/one_em.js';
 import {evaluateVariableOffset} from '../symbol/symbol_layout.js';
-import {extend} from '../util/util.js';
 import Tile from '../source/tile.js';
 import {
     mercatorXfromLng,
@@ -26,8 +25,7 @@ import {globeToMercatorTransition} from '../geo/projection/globe.js';
 import {
     symbolIconUniformValues,
     symbolSDFUniformValues,
-    symbolTextAndIconUniformValues,
-    globeSymbolUniformValues
+    symbolTextAndIconUniformValues
 } from './program/symbol_program.js';
 
 import type Painter from './painter.js';
@@ -256,7 +254,7 @@ function drawLayerSymbols(painter, sourceCache, layer, coords, isText, translate
     let sortFeaturesByKey = false;
 
     const depthMode = painter.depthModeForSublayer(0, DepthMode.ReadOnly);
-    const mercCenter = [
+    const mercatorCenter = [
         mercatorXfromLng(tr.center.lng),
         mercatorYfromLat(tr.center.lat)
     ];
@@ -292,7 +290,6 @@ function drawLayerSymbols(painter, sourceCache, layer, coords, isText, translate
 
         const program = painter.useProgram(getSymbolProgramName(isSDF, isText, bucket), programConfiguration, defines);
         const size = symbolSize.evaluateSizeForZoom(sizeData, tr.zoom);
-        const coordId = [coord.canonical.x, coord.canonical.y, 1 << coord.canonical.z];
 
         let texSize: [number, number];
         let texSizeIcon: [number, number] = [0, 0];
@@ -345,19 +342,15 @@ function drawLayerSymbols(painter, sourceCache, layer, coords, isText, translate
         let uniformValues;
         if (isSDF) {
             if (!bucket.iconsInText) {
-                uniformValues = symbolSDFUniformValues(sizeData.kind, size, rotateInShader, pitchWithMap,
-                painter, matrix, uLabelPlaneMatrix, uglCoordMatrix, isText, texSize, true, coordId);
+                uniformValues = symbolSDFUniformValues(sizeData.kind, size, rotateInShader, pitchWithMap, painter,
+                    matrix, uLabelPlaneMatrix, uglCoordMatrix, isText, texSize, true, coord, globeToMercator, mercatorCenter, tileTransform);
             } else {
-                uniformValues = symbolTextAndIconUniformValues(sizeData.kind, size, rotateInShader,
-                pitchWithMap, painter, matrix, uLabelPlaneMatrix, uglCoordMatrix, texSize, texSizeIcon, coordId);
+                uniformValues = symbolTextAndIconUniformValues(sizeData.kind, size, rotateInShader, pitchWithMap, painter,
+                    matrix, uLabelPlaneMatrix, uglCoordMatrix, texSize, texSizeIcon, coord, globeToMercator, mercatorCenter, tileTransform);
             }
         } else {
-            uniformValues = symbolIconUniformValues(sizeData.kind, size, rotateInShader, pitchWithMap,
-                painter, matrix, uLabelPlaneMatrix, uglCoordMatrix, isText, texSize, coordId);
-        }
-
-        if (isGlobeProjection) {
-            extend(uniformValues, globeSymbolUniformValues(coord.toUnwrapped(), mercCenter, globeToMercator, tr._camera, tileTransform));
+            uniformValues = symbolIconUniformValues(sizeData.kind, size, rotateInShader, pitchWithMap, painter, matrix,
+                uLabelPlaneMatrix, uglCoordMatrix, isText, texSize, coord, globeToMercator, mercatorCenter, tileTransform);
         }
 
         const state = {
